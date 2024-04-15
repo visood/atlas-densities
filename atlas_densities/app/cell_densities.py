@@ -204,15 +204,18 @@ def cell_density(annotation_path, hierarchy_path, nissl_path, output_path, group
     - the optional soma radii, used to operate a correction.
     """
 
+    L.info("Loading annotation ...")
     annotation = VoxelData.load_nrrd(annotation_path)
     nissl = VoxelData.load_nrrd(nissl_path)
 
     # Check nrrd metadata consistency
+    L.info("Check nrrd metadata consistency...")
     assert_properties([annotation, nissl])
 
     region_map = RegionMap.load_json(hierarchy_path)
     group_ids_config = utils.load_json(group_ids_config_path)
 
+    L.info("Compute volumetric overall cell densities: started")
     overall_cell_density = compute_cell_density(
         region_map,
         annotation.raw,
@@ -220,10 +223,12 @@ def cell_density(annotation_path, hierarchy_path, nissl_path, output_path, group
         nissl.raw,
         group_ids_config=group_ids_config,
     )
+    L.info("Compute volumetric overall cell densities: done")
     nissl.with_data(overall_cell_density).save_nrrd(output_path)
 
 
 @app.command()
+@verbose_option
 @common_atlas_options
 @click.option(
     "--cell-density-path",
@@ -289,6 +294,7 @@ def glia_cell_densities(
     glia_proportions_path,
     output_dir,
     group_ids_config_path,
+    verbose=None,
 ):  # pylint: disable=too-many-arguments, too-many-locals
     """Compute and save the glia cell densities.
 
@@ -331,7 +337,7 @@ def glia_cell_densities(
     \b
     - neuron_density.nrrd
     """
-
+    set_verbose(L, verbose)
     L.info("Loading annotation ...")
     annotation = VoxelData.load_nrrd(annotation_path)
     L.info("Loading overall cell density ...")
