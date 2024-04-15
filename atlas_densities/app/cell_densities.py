@@ -163,6 +163,7 @@ def app(verbose):
 
 @app.command()
 @common_atlas_options
+@verbose_option
 @click.option(
     "--nissl-path",
     type=EXISTING_FILE_PATH,
@@ -184,7 +185,8 @@ def app(verbose):
     show_default=True,
 )
 @log_args(L)
-def cell_density(annotation_path, hierarchy_path, nissl_path, output_path, group_ids_config_path):
+def cell_density(annotation_path, hierarchy_path, nissl_path, output_path, group_ids_config_path,
+                 verbose=None):
     """Compute and save the overall mouse brain cell density.
 
     The input Nissl stain volume of AIBS is turned into an actual density field complying with
@@ -203,6 +205,7 @@ def cell_density(annotation_path, hierarchy_path, nissl_path, output_path, group
     linear dependency factor for each region where a cell count is available.
     - the optional soma radii, used to operate a correction.
     """
+    set_verbose(L, verbose)
 
     L.info("Loading annotation ...")
     annotation = VoxelData.load_nrrd(annotation_path)
@@ -230,6 +233,7 @@ def cell_density(annotation_path, hierarchy_path, nissl_path, output_path, group
 @app.command()
 @verbose_option
 @common_atlas_options
+@verbose_option
 @click.option(
     "--cell-density-path",
     type=EXISTING_FILE_PATH,
@@ -338,6 +342,7 @@ def glia_cell_densities(
     - neuron_density.nrrd
     """
     set_verbose(L, verbose)
+
     L.info("Loading annotation ...")
     annotation = VoxelData.load_nrrd(annotation_path)
     L.info("Loading overall cell density ...")
@@ -399,6 +404,7 @@ def glia_cell_densities(
 
 @app.command()
 @common_atlas_options
+@verbose_option
 @click.option(
     "--gad1-path",
     type=EXISTING_FILE_PATH,
@@ -457,6 +463,7 @@ def inhibitory_and_excitatory_neuron_densities(
     inhibitory_neuron_counts_path,
     output_dir,
     group_ids_config_path,
+    verbose=None,
 ):  # pylint: disable=too-many-arguments
     """Compute and save the inhibitory and excitatory neuron densities.
 
@@ -492,6 +499,7 @@ def inhibitory_and_excitatory_neuron_densities(
     - inhibitory_neuron_density.nrrd
     - excitatory_neuron_density.nrrd
     """
+    set_verbose(L, verbose)
 
     annotation = VoxelData.load_nrrd(annotation_path)
     neuron_density = VoxelData.load_nrrd(neuron_density_path)
@@ -544,6 +552,7 @@ def inhibitory_and_excitatory_neuron_densities(
 def compile_measurements(
     measurements_output_path,
     homogenous_regions_output_path,
+    verbose=None,
 ):
     """
     Compile the cell density related measurements of mmc3.xlsx and `gaba_papers.xsls` into a CSV
@@ -604,6 +613,7 @@ def compile_measurements(
     unique source of density-related measurements for the AIBS mouse brain. New measurements
     should be added to the stored file (Nexus).
     """
+    set_verbose(L, verbose)
 
     L.info("Loading hierarchy ...")
     region_map = RegionMap.load_json(Path(DATA_PATH, "1.json"))  # Unmodified AIBS 1.json
@@ -627,6 +637,7 @@ def compile_measurements(
 
 @app.command()
 @common_atlas_options
+@verbose_option
 @click.option(
     "--region-name",
     type=str,
@@ -671,6 +682,7 @@ def measurements_to_average_densities(
     neuron_density_path,
     measurements_path,
     output_path,
+    verbose=None,
 ):  # pylint: disable=too-many-arguments
     """Compute and save average cell densities based on measurements and AIBS region volumes.
 
@@ -707,6 +719,7 @@ def measurements_to_average_densities(
     All output measurements are average cell densities of various cell types over AIBS brain
     regions expressed in number of cells per mm^3.
     """
+    set_verbose(L, verbose)
 
     L.info("Loading annotation ...")
     annotation = VoxelData.load_nrrd(annotation_path)
@@ -750,6 +763,7 @@ def measurements_to_average_densities(
 
 @app.command()
 @common_atlas_options
+@verbose_option
 @click.option(
     "--region-name",
     type=str,
@@ -826,6 +840,7 @@ def fit_average_densities(
     fitted_densities_output_path,
     fitting_maps_output_path,
     group_ids_config_path,
+    verbose=None,
 ):  # pylint: disable=too-many-arguments, too-many-locals
     """
     Estimate average cell densities of brain regions in `hierarchy_path` for the cell types
@@ -879,6 +894,7 @@ def fit_average_densities(
     - some regions can have NaN density values for one or more cell types because they are not
     covered by the selected slices of the volumetric gene marker intensities.
     """
+    set_verbose(L, verbose)
     Path(fitted_densities_output_path).parent.mkdir(parents=True, exist_ok=True)
 
     L.info("Loading annotation ...")
@@ -956,6 +972,7 @@ def fit_average_densities(
 
 @app.command()
 @common_atlas_options
+@verbose_option
 @click.option(
     "--region-name",
     type=str,
@@ -1000,6 +1017,7 @@ def inhibitory_neuron_densities(
     average_densities_path,
     algorithm,
     output_dir,
+    verbose=None,
 ):
     """
     Create volumetric cell densities of brain regions in `hierarchy_path` for the cell types
@@ -1029,6 +1047,8 @@ def inhibitory_neuron_densities(
         across cell types. See :download:`pdf file <bbpp82_628_linear_program.pdf>` in the
         `doc/source` folder.
     """
+    set_verbose(L, verbose)
+
     L.info("Loading annotation ...")
     annotation = VoxelData.load_nrrd(annotation_path)
     L.info("Loading neuron density ...")
@@ -1127,6 +1147,7 @@ def excitatory_split(
     cortex_all_to_exc_mtypes,
     metadata_path,
     output_dir,
+    verbose=None,
 ):
     """
     This program makes exc and inh densities with isocortex cut out
