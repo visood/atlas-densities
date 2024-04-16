@@ -346,6 +346,21 @@ def compute_average_intensities(
 
     intensity = _compute_per_marker_intensity(annotation, gene_marker_volumes)
 
+    def _fill_average_intensities(leaf_ids, marker_intensity):
+        # print(f"Leaf Ids are {leaf_ids}")
+        # print(f"Brain region name is {hierarchy_info_with_leaves[hierarchy_info_with_leaves.leaf_ids == leaf_ids]}")
+        # print(f"The leaf ids not present in marker intensity are {leaf_ids - set(marker_intensity.index.values)}")
+        intersecting_leaf_ids = leaf_ids & set(marker_intensity.index.values)
+        # print(f"Intersecting leaf ids are - {intersecting_leaf_ids}")
+        # print(f"Marker intensities looks like - {marker_intensity.head(5)}")
+        # print(f"Marker intensities columns are {marker_intensity.columns} and index is {marker_intensity.index.values}")
+        leaf_nodes = marker_intensity.loc[list(intersecting_leaf_ids)]
+        # print(f"Leaf nodes look like \n {leaf_nodes}")
+        # print(f"Type of leaf nodes is {type(leaf_nodes)}, shape of leaf nodes is {leaf_nodes.shape}")
+        leaf_nodes['total_intensity'] = leaf_nodes['voxel_count']*leaf_nodes['density']
+        return leaf_nodes['total_intensity'].sum()/leaf_nodes['voxel_count'].sum()
+
+
     region_map_df = region_map.as_dataframe()
     _add_depths(region_map_df)
 
@@ -354,12 +369,21 @@ def compute_average_intensities(
         index=hierarchy_info.index,
         columns=[marker_name.lower() for marker_name in gene_marker_volumes],
     )
-    result["brain_region"] = region_map_df.loc[result.index].name
+    print(f"Hierarchy info right now is \n {hierarchy_info.head(5)}")
+    print(f"Columns = {hierarchy_info.columns}, Index = {hierarchy_info.index}")
+    result["brain_region"] = hierarchy_info.loc[result.index].brain_region
 
     for marker in gene_marker_volumes:
         df = pd.DataFrame(data=0.0, index=result.index, columns=["voxel_count", "density"])
-        df.update(intensity[marker.lower()])
-        _fill_densities(region_map, region_map_df, df)
+        #hierarchy_info_with_leaves has 1836 rows but 460 of them have no leaves in the dataset.
+        #Question why were they not dropped by the remove unknown regions.
+        hierarchy_info_with_leaves = utils.add_leaf_to_hierarchy_info(hierarchy_info, annotation = annotation)
+        assert hierarchy_info_with_leaves.index.equals(hierarchy_info.index)
+        df['leaf_ids'] = hierarchy_info_with_leaves['leaf_ids']
+        #Some of the densities will be 0 because they have 0 density, and some have just NaN values, and then some other have no lead-ids (empty dataframe).
+        df['density'] = df['leaf_ids'].apply(_fill_average_intensities,args = (intensity[marker.lower()],))
+        # df.update(intensity[marker.lower()])
+        # _fill_densities(region_map, region_map_df, df)
         result[marker.lower()] = df["density"]
 
     result = result.set_index("brain_region")
@@ -719,6 +743,33 @@ def _get_group_region_names(groups):
 
     return list(set(it.chain.from_iterable(groups.values())))
 
+def _get_group_names_regex(regex_rows, region_map, groups):
+    """
+    Updates the groups object so that the regex strings are added to their particular group.
+    """
+    # create a mapping from brain name to ids from region map
+    rm_df =region_map.as_dataframe()
+    name_id_map  = {key:value for key,value in zip(rm_df.name.values,rm_df.index.values)}
+
+    #group_ids will be equivalent of groups but with ids instead of names
+    group_ids = {}
+    for key in groups:
+        group_ids[key] = {name_id_map[name] for name in list(groups[key])}
+
+    #Go through each regex and identify which groups does it subset.
+    #Right now, the regex string should be a full subset. If there is a partial subset it won't be added to the group.
+    for index, rows in regex_rows.iterrows():
+        regex_map = {key:rows['descendant_ids'].issubset(group_ids[key]) for key in group_ids}
+        count=0
+        subset_regions = []
+        for key in groups:
+            if regex_map[key]:
+                groups[key].add(rows['brain_region'])
+                count+=1
+                subset_regions.append(key)
+        
+        print(f"The regex string '{rows['brain_region']}' was added to {count} regions - {subset_regions}")
+    return groups
 
 def linear_fitting(  # pylint: disable=too-many-arguments
     region_map: RegionMap,
@@ -787,7 +838,7 @@ def linear_fitting(  # pylint: disable=too-many-arguments
     _check_average_densities_sanity(average_densities)
     _check_homogenous_regions_sanity(homogenous_regions)
 
-    hierarchy_info = utils.get_hierarchy_info(region_map, root=region_name)
+    hierarchy_info = utils.get_hierarchy_info_with_regex(region_map, root=region_name, density_df = average_densities)
     remove_unknown_regions(average_densities, region_map, annotation, hierarchy_info)
     remove_unknown_regions(homogenous_regions, region_map, annotation, hierarchy_info)
 
@@ -818,12 +869,22 @@ def linear_fitting(  # pylint: disable=too-many-arguments
 
     L.info("Computing average intensities ...")
     groups = _get_group_names(region_map, group_ids_config)
+
+    #Add the regex regions from hierarchy info to the groups as well.
+    #Todo - Add a check that there are no overlapping regions between the groups and regex
+    regex_mask = hierarchy_info['brain_region'].str.startswith('@')
+    #Add a function here, which will add the regex string to the corresponding group.
+    groups = _get_group_names_regex(hierarchy_info.loc[regex_mask], region_map, groups)
+
     # Limit the fitting to the regions groups.
     indexes = np.isin(
         hierarchy_info["brain_region"].to_numpy(),
         _get_group_region_names(groups),
         invert=True,
     )
+    #Manipulate indexes object to keep the regex indexes
+    #The average intensities and densities have different number of rows. Brain regions like the following are not in average intensities
+    # Basic cell groups and regions   Cerebrum     Cerebral cortex   Cortical plate root
     average_intensities = compute_average_intensities(
         annotation,
         gene_marker_volumes,

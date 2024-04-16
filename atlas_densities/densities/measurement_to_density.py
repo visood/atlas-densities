@@ -20,7 +20,7 @@ from atlas_commons.typing import AnnotationT, FloatArray
 from tqdm import tqdm
 from voxcell import RegionMap  # type: ignore
 
-from atlas_densities.densities.utils import compute_region_volumes, get_hierarchy_info
+from atlas_densities.densities.utils import compute_region_volumes, get_hierarchy_info, get_hierarchy_info_with_regex
 from atlas_densities.exceptions import AtlasDensitiesWarning
 
 
@@ -278,6 +278,7 @@ def remove_unknown_regions(
             :func:`atlas_densities.densities.utils.get_hierarchy_info`.
     """
     pd.set_option("display.max_colwidth", None)
+    assert len(measurements) != 0 # Ensure that the measurements dataframe is not empty
     indices_ids = measurements.index[
         ~measurements["brain_region"].isin(hierarchy_info["brain_region"])
     ]
@@ -290,6 +291,9 @@ def remove_unknown_regions(
         )
         measurements.drop(indices_ids, inplace=True)
 
+    assert isinstance(annotation, np.ndarray)
+    assert len(annotation.shape) == 3
+
     u_regions = np.unique(annotation)
     u_regions = np.delete(u_regions, 0)  # don't take 0, i.e: outside of the brain
     u_regions = [
@@ -299,7 +303,11 @@ def remove_unknown_regions(
     ]
     u_regions = np.unique([elem for row in u_regions for elem in row])  # flatten
 
-    indices_ann = measurements.index[~measurements["brain_region"].isin(u_regions)]
+    #Filter out the regex with cell density measurements from the brain regions to be processed separately
+    measurements_regex_index = measurements.apply(lambda row :  row.brain_region.startswith('@') and row.measurement_type == 'cell density',axis=1)
+
+    measurements_regex = measurements[measurements_regex_index] 
+    indices_ann = measurements.index[(~measurements["brain_region"].isin(u_regions)) & (~measurements_regex_index)]
     if len(indices_ann) > 0:
         warnings.warn(
             "The following lines in the measurements dataframe have no equivalent in the "
@@ -351,8 +359,10 @@ def measurement_to_average_density(  # pylint: disable=too-many-arguments
         type "cell density". Densities are expressed in number of cells per mm^3.
     """
 
-    hierarchy_info = get_hierarchy_info(region_map, root_region)
+    hierarchy_info = get_hierarchy_info_with_regex(region_map, root_region,measurements)
+
     remove_unknown_regions(measurements, region_map, annotation, hierarchy_info)
+
 
     # Replace NaN standard deviations by measurement values
     nan_mask = measurements["standard_deviation"].isna()

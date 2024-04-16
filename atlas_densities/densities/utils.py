@@ -490,6 +490,79 @@ def get_hierarchy_info(
     )
 
     return data_frame
+#TODO - Skip the rows with regex which resolve to only one of the rows within region map.
+#TODO Print what the regex were resolved to, in the log file.
+def get_hierarchy_info_with_regex(
+    region_map: "RegionMap",
+    root: str = "Basic cell groups and regions",
+    density_df: pd.DataFrame = None
+) -> "pd.DataFrame":
+    """
+    Allows specification of regex as region names
+    """
+
+    if density_df is None:
+        return get_hierarchy_info(region_map, root)
+
+    assert "brain_region" in density_df.columns
+    assert "measurement_type" in density_df.columns
+    density_df_regex_mask = density_df.apply(lambda row :  row.brain_region.startswith('@') and row.measurement_type == 'cell density',axis=1)
+
+    if not(np.any(density_df_regex_mask)):
+        return get_hierarchy_info(region_map, root)
+
+    #Get the hierarchy_info and append the regex rows to it.
+    hierarchy_info = get_hierarchy_info(region_map, root)
+
+    #Get the regular expression strings from density_df
+    rg_strings = list(set(density_df.loc[density_df_regex_mask,'brain_region']))
+
+    #Get the dataframe back from the rg_strings
+
+    #Define a function which gives back a unique_id - region id, descandant ids, and region names.
+    def _get_data_from_regex(rg_strings,max_id):
+        region_ids = list(range(max_id +1,max_id+1+len(rg_strings)))
+        descendant_ids = [region_map.find(rg_string,attr='name', with_descendants=True) for rg_string in rg_strings]
+        data_frame = pd.DataFrame(
+            {"brain_region": rg_strings, "descendant_ids": descendant_ids},
+            index=region_ids
+        )
+        return data_frame
+    
+    max_id = max(hierarchy_info.index)
+
+    regex_df = _get_data_from_regex(rg_strings,max_id)
+    print(f"rg-strings = {rg_strings},max_id = {max_id}, regex_df = {regex_df}")
+    print(f"{pd.concat((hierarchy_info,regex_df)).tail(10)}")
+
+    return pd.concat((hierarchy_info,regex_df))
+
+def add_leaf_to_hierarchy_info(hierarchy_info, annotation = None):
+    """If annotation is None, calculate leaves based on hierarchy"""
+    if annotation is not None:
+        assert isinstance(annotation, np.ndarray)
+        leaf_nodes = np.unique(annotation)
+        #Consider only those rows which are part of hierarchy info. This is just to test
+        if 'id' in hierarchy_info.columns:
+            mask = np.isin(leaf_nodes,hierarchy_info['id'].values)
+            print(f"{leaf_nodes[~mask]} could not be find inside the hierarchy info, and will be dropped")
+        #Assuming the index has the id values
+        elif np.issubdtype(hierarchy_info.index.dtype,np.integer):
+            mask = np.isin(leaf_nodes,hierarchy_info.index.values)
+            print(f"{leaf_nodes[~mask] }could not be find inside the hierarchy info, and will be dropped")
+        else:
+            raise AtlasDensitiesError("Id column not present in hierarchy info file, either as column or index")
+        leaf_nodes = set(leaf_nodes[mask])
+
+        hierarchy_info['leaf_ids'] = hierarchy_info['descendant_ids'].apply(lambda x: x & leaf_nodes )
+
+        return hierarchy_info
+    else:
+        #todo. implement the case where leaves are calculated based on hierarchy.
+        return AtlasDensitiesError("To implement the case where Annotations is not passed.")
+
+
+
 
 
 def compute_region_volumes(
